@@ -4,7 +4,7 @@ A live view of a [Harbor](https://github.com/laude-institute/harbor) rollout, dr
 
 **τ ∼ π(x; S) → ŷ → f(ŷ, y)**
 
-**[▶ Watch a recorded run](https://arthursrz.github.io/harbor-live/)** — Claude Code drafting an SEC audit-findings memo, 158 steps, judged by an LLM rubric, replayed in your browser. Add `?speed=10` to hurry it up.
+**[▶ Take the tour](https://arthursrz.github.io/harbor-live/)** — an 11-stop walkthrough of a recorded run: Claude Code drafting an SEC audit-findings memo, 158 steps, graded by an LLM judge. Click *next* (or →) to move from the task to the trajectory, the answer, the hidden rubric and the reward. `?tour=0&speed=10` plays the run unattended instead.
 
 ![replay](docs/demo.png)
 
@@ -36,7 +36,7 @@ harbor() {
 
 ## Replay mode
 
-When `/state` is not served (GitHub Pages, `file://`), `live.html` looks for a `state.json` next to it (or `?replay=<url>`) and plays it back: one trajectory step every 0.5 s, then the verifier and judge verdicts one by one.
+When `/state` is not served (GitHub Pages, `file://`), `live.html` looks for a `state.json` next to it (or `?replay=<url>`) and opens the tour: each stop freezes the replay at a frame, spotlights one card and explains the term it stands for. `?tour=0` plays it back unattended instead (one step every 0.5 s, then verdicts one by one); `?stop=N` starts the tour at stop N.
 
 To bake a new replay from a finished job:
 
