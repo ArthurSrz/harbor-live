@@ -1,0 +1,584 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Harbor Live Rollout</title>
+<style>
+:root {
+  --bg: #f6f5f1; --panel: #ffffff; --ink: #1d1d1b; --muted: #6f6c64; --line: #e3e0d8;
+  --obs: #2f6db5; --obs-bg: #eaf1fa; --act: #b5562f; --act-bg: #faeee8;
+  --think: #8a8578; --ok: #2e8a4e; --bad: #c0392b; --wait: #c9a227; --glow: #fff3c4;
+  --serif: "STIX Two Text", "Cambria Math", Georgia, serif;
+  --mono: ui-monospace, "SF Mono", Menlo, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #15161a; --panel: #1e2026; --ink: #ecebe6; --muted: #9a978f; --line: #2e3038;
+    --obs: #7fb0ec; --obs-bg: #1c2836; --act: #ee9a74; --act-bg: #33231c;
+    --think: #7d796f; --ok: #5cc47f; --bad: #ef6f62; --wait: #e2c15a; --glow: #4a4020; color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #15161a; --panel: #1e2026; --ink: #ecebe6; --muted: #9a978f; --line: #2e3038;
+  --obs: #7fb0ec; --obs-bg: #1c2836; --act: #ee9a74; --act-bg: #33231c;
+  --think: #7d796f; --ok: #5cc47f; --bad: #ef6f62; --wait: #e2c15a; --glow: #4a4020; color-scheme: dark;
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--ink); font: 14px/1.45 system-ui, sans-serif; }
+header { padding: 18px 16px 8px; text-align: center; }
+.eq { font-family: var(--serif); font-size: clamp(22px, 4vw, 34px); letter-spacing: .02em; }
+.eq .s { color: var(--muted); opacity: .45; transition: all .4s; }
+.eq .s.on { color: var(--ink); opacity: 1; }
+.eq .s.hot { color: var(--act); }
+.meta { color: var(--muted); font-size: 12px; margin-top: 4px; font-family: var(--mono); }
+.phases { display: flex; justify-content: center; gap: 6px; flex-wrap: wrap; margin: 10px 16px 14px; }
+.ph { padding: 4px 10px; border-radius: 999px; border: 1px solid var(--line); color: var(--muted); font-size: 12px; background: var(--panel); }
+.ph.done { color: var(--ok); border-color: var(--ok); }
+.ph.fail { color: var(--bad); border-color: var(--bad); }
+.ph.now { color: var(--ink); border-color: var(--wait); box-shadow: 0 0 0 3px var(--glow); }
+.ph small { opacity: .7; margin-left: 4px; }
+main, .grid { display: grid; grid-template-columns: minmax(220px, 1fr) minmax(0, 2fr) minmax(220px, 1fr); gap: 14px; padding: 0 16px; max-width: 1400px; margin: 0 auto; }
+@media (max-width: 900px) { main, .grid { grid-template-columns: minmax(0, 1fr); } }
+.col { display: flex; flex-direction: column; gap: 14px; min-width: 0; }
+.card { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px; min-width: 0; }
+.card h3 { margin: 0 0 8px; font-weight: 500; font-size: 13px; color: var(--muted); display: flex; gap: 8px; align-items: baseline; }
+.card h3 .sym { font-family: var(--serif); font-size: 22px; color: var(--ink); font-style: italic; }
+.text { white-space: pre-wrap; word-break: break-word; }
+#yhat .text { max-height: 240px; overflow: auto; }
+.chips { display: flex; flex-wrap: wrap; gap: 4px; }
+.chip { font: 11px var(--mono); padding: 2px 7px; border-radius: 5px; border: 1px solid var(--line); color: var(--muted); transition: all .3s; }
+.chip.used { color: var(--act); border-color: var(--act); background: var(--act-bg); font-weight: 600; }
+.empty { font-family: var(--serif); font-size: 20px; color: var(--muted); }
+#tau { max-height: calc(100vh - 230px); overflow-y: auto; min-height: 300px; }
+@media (max-width: 900px) { #tau { max-height: none; } }
+.step { display: grid; grid-template-columns: 44px 1fr; gap: 10px; margin-bottom: 8px; animation: in .35s ease-out; }
+@keyframes in { from { opacity: 0; transform: translateY(6px); } }
+.lab { font-family: var(--serif); font-style: italic; font-size: 20px; text-align: right; padding-top: 4px; }
+.lab sub { font-size: 12px; }
+.body { border-radius: 8px; padding: 8px 10px; min-width: 0; border-left: 3px solid; }
+.o .lab { color: var(--obs); } .o .body { background: var(--obs-bg); border-color: var(--obs); }
+.a .lab { color: var(--act); } .a .body { background: var(--act-bg); border-color: var(--act); }
+.t .lab { color: var(--think); } .t .body { border-color: var(--think); color: var(--think); font-style: italic; }
+.final .body { box-shadow: 0 0 0 2px var(--act); }
+.kind { font: 600 11px var(--mono); text-transform: uppercase; letter-spacing: .05em; opacity: .75; margin-bottom: 3px; }
+.body pre { margin: 0; font: 12px/1.4 var(--mono); white-space: pre-wrap; word-break: break-word; max-height: 220px; overflow: auto; }
+.pending { color: var(--muted); font-style: italic; padding: 8px 0 0 54px; }
+.pending::after { content: "▍"; animation: blink 1s steps(1) infinite; }
+@keyframes blink { 50% { opacity: 0; } }
+.kv { font: 12px var(--mono); color: var(--muted); margin-top: 6px; }
+.gt { margin-top: 8px; border-top: 1px solid var(--line); padding-top: 6px; }
+.gt summary { font: 12px var(--mono); color: var(--muted); cursor: pointer; }
+.gt summary:hover { color: var(--ink); }
+.gt pre { margin: 6px 0 0; font: 11px/1.45 var(--mono); white-space: pre-wrap; word-break: break-word;
+  max-height: 320px; overflow: auto; background: var(--bg); border-radius: 6px; padding: 8px; }
+.pass { color: var(--ok); } .fail { color: var(--bad); }
+.evalsec { max-width: 1400px; margin: 28px auto 0; padding: 0 16px; border-top: 1px solid var(--line); }
+.evalsec .eq { text-align: center; padding: 18px 0 4px; }
+.vlog { margin: 0; font: 12px/1.45 var(--mono); white-space: pre-wrap; word-break: break-word; max-height: 420px; min-height: 160px; overflow: auto;
+  background: var(--bg); border-left: 3px solid var(--obs); border-radius: 6px; padding: 8px 10px; }
+.mech { margin-top: 14px; }
+.mech h3 { margin-bottom: 4px; }
+.badge { display: inline-block; font: 600 11px var(--mono); text-transform: uppercase; letter-spacing: .05em; padding: 2px 9px; border-radius: 999px; border: 1px solid currentColor; }
+.badge.det { color: var(--obs); } .badge.llm { color: var(--act); }
+.nature { color: var(--muted); margin: 8px 0 14px; max-width: 920px; }
+.mgrid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.4fr); gap: 14px; align-items: start; }
+@media (max-width: 900px) { .mgrid { grid-template-columns: minmax(0, 1fr); } .crit { max-height: 300px; } }
+.crit { max-height: 560px; overflow: auto; border: 1px solid var(--line); border-radius: 8px; }
+.crow { display: grid; grid-template-columns: 18px 46px minmax(0, 1fr); gap: 6px; width: 100%; padding: 7px 10px; border: 0; border-bottom: 1px solid var(--line);
+  background: none; color: var(--ink); font: 13px/1.35 system-ui, sans-serif; text-align: left; cursor: pointer; }
+.crow:last-child { border-bottom: 0; }
+.crow:hover { background: var(--bg); } .crow.sel { background: var(--glow); }
+.crow code { font: 11px var(--mono); color: var(--muted); padding-top: 2px; }
+.call { display: flex; flex-direction: column; gap: 10px; }
+.msg { border-left: 3px solid; border-radius: 6px; padding: 8px 10px; min-width: 0; }
+.msg pre { margin: 0; font: 11.5px/1.45 var(--mono); white-space: pre-wrap; word-break: break-word; max-height: 150px; overflow: auto; }
+.msg.res pre { max-height: none; }
+.msg.sys { border-color: var(--think); background: var(--bg); }
+.msg.usr { border-color: var(--obs); background: var(--obs-bg); }
+.msg.res { border-color: var(--act); background: var(--act-bg); }
+.msg .kv { margin-top: 4px; }
+.agg { display: flex; align-items: center; gap: 24px; margin-top: 16px; padding: 18px 20px; border-radius: 10px;
+  border: 2px solid var(--line); background: var(--bg); font-family: var(--serif); font-size: 18px; }
+.agg .rbig { font-size: clamp(56px, 9vw, 96px); line-height: 1; font-weight: 500; text-align: center; }
+.agg .rbig small { display: block; font: 600 11px var(--mono); letter-spacing: .08em; text-transform: uppercase; color: var(--muted); margin-top: 6px; }
+.agg small { display: block; font: 12px/1.5 var(--mono); color: var(--muted); margin-top: 4px; }
+@media (max-width: 600px) { .agg { flex-direction: column; align-items: flex-start; gap: 10px; } }
+.cwrap { overflow-x: auto; }
+.checks { width: 100%; border-collapse: collapse; font-size: 13px; min-width: 640px; }
+.checks th, .checks td { border-bottom: 1px solid var(--line); padding: 8px; vertical-align: top; text-align: left; }
+.checks th { font: 600 11px var(--mono); color: var(--muted); text-transform: uppercase; letter-spacing: .05em; }
+.checks pre { margin: 0; font: 12px/1.4 var(--mono); white-space: pre-wrap; word-break: break-word; }
+.checks td:first-child { width: 22px; font-size: 15px; }
+.pipe { list-style: none; margin: 4px 0 0; padding: 0; display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 10px; counter-reset: st; }
+@media (max-width: 900px) { .pipe { grid-template-columns: minmax(0, 1fr); } }
+.pipe li { counter-increment: st; position: relative; border: 1px solid var(--line); border-radius: 8px; padding: 10px 10px 10px 40px; color: var(--muted); transition: all .3s; }
+.pipe li::before { content: counter(st); position: absolute; left: 10px; top: 10px; width: 20px; height: 20px; border-radius: 50%;
+  border: 1px solid currentColor; font: 600 11px/18px var(--mono); text-align: center; }
+.pipe li b { display: block; font-weight: 600; font-size: 13px; margin-bottom: 3px; }
+.pipe li span { font: 11px/1.45 var(--mono); word-break: break-word; }
+.pipe li.done { color: var(--ink); border-color: var(--ok); }
+.pipe li.done::before { content: "✓"; color: var(--ok); }
+.pipe li.now { color: var(--ink); border-color: var(--wait); box-shadow: 0 0 0 3px var(--glow); }
+.pipe li.now::before { animation: blink 1s steps(1) infinite; }
+footer { max-width: 1400px; margin: 14px auto 24px; padding: 0 16px; }
+footer .card { display: flex; gap: 14px; align-items: center; flex-wrap: wrap; }
+.dots { display: flex; gap: 6px; flex-wrap: wrap; }
+.dot { width: 18px; height: 18px; border-radius: 50%; border: 2px solid var(--line); cursor: pointer; background: var(--panel); }
+.dot.sel { outline: 2px solid var(--ink); outline-offset: 2px; }
+.R { font-family: var(--serif); font-size: 18px; margin-left: auto; }
+[data-term] { cursor: help; }
+.eq [data-term], .lab[data-term], footer [data-term] { text-decoration: underline dotted 1px; text-underline-offset: 4px; text-decoration-color: var(--muted); }
+.info { margin-left: auto; width: 18px; height: 18px; border-radius: 50%; border: 1px solid var(--line); background: var(--bg); color: var(--muted);
+  font: italic 600 11px var(--serif); line-height: 16px; padding: 0; cursor: help; flex-shrink: 0; align-self: center; }
+.eq .info { margin-left: 10px; vertical-align: middle; position: relative; top: -4px; }
+.info:hover, .info:focus-visible { color: var(--ink); border-color: var(--muted); }
+#tip { position: fixed; z-index: 10; max-width: min(360px, calc(100vw - 32px)); background: var(--panel); color: var(--ink);
+  border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; box-shadow: 0 6px 24px rgb(0 0 0 / .18);
+  font-size: 13px; line-height: 1.5; pointer-events: none; opacity: 0; transition: opacity .12s; }
+#tip.show { opacity: 1; }
+#tip b { font-family: var(--serif); font-size: 16px; font-style: italic; font-weight: 400; }
+#tip q { font-family: var(--serif); }
+#tip .note { margin: 6px 0 0; color: var(--muted); }
+#tip cite { display: block; margin-top: 6px; font: 11px var(--mono); color: var(--muted); font-style: normal; }
+.err { color: var(--bad); font: 12px var(--mono); white-space: pre-wrap; }
+</style>
+</head>
+<body>
+<header>
+  <div class="eq">
+    <span class="s" id="e-tau" data-term="tau" tabindex="0">τ</span> <span class="s" id="e-sim">∼</span>
+    <span class="s" id="e-pi" data-term="pi" tabindex="0">π</span><span class="s on">(</span><span class="s" id="e-x" data-term="x" tabindex="0">x</span><span class="s on">;</span>
+    <span class="s" id="e-S" data-term="S" tabindex="0">S</span><span class="s on">)</span>
+    <span class="s on">→</span> <span class="s" id="e-yhat" data-term="yhat" tabindex="0">ŷ</span>
+    <span class="s on">→</span> <span class="s" id="e-f" data-term="f" tabindex="0">f(ŷ, y)</span>
+    <span class="s" id="e-val"></span>
+    <button class="info" data-term="eq" aria-label="What the whole equation means">i</button>
+  </div>
+  <div class="meta" id="meta">waiting for a job in jobs/…</div>
+</header>
+<div class="phases" id="phases"></div>
+<main>
+  <div class="col">
+    <div class="card"><h3><span class="sym">x</span> task instance<button class="info" data-term="x" aria-label="Definition of x">i</button></h3><div class="text" id="x"></div></div>
+    <div class="card"><h3><span class="sym">π</span> agent<button class="info" data-term="pi" aria-label="Definition of π">i</button></h3><div class="text" id="pi"></div></div>
+    <div class="card"><h3><span class="sym">S</span> active skill set<button class="info" data-term="S" aria-label="Definition of S">i</button></h3><div id="S"></div></div>
+    <div class="card"><h3><span class="sym">𝒰</span> tools<button class="info" data-term="U" aria-label="Definition of 𝒰">i</button></h3><div class="chips" id="U"></div></div>
+  </div>
+  <div class="col">
+    <div class="card"><h3><span class="sym">τ</span><span>trajectory (o₁, a₁, …, o<sub>T</sub>, a<sub>T</sub>)</span><button class="info" data-term="tau" aria-label="Definition of τ">i</button></h3><div id="tau"></div></div>
+  </div>
+  <div class="col">
+    <div class="card"><h3><span class="sym">ŷ</span><span>predicted answer (a<sub>T</sub>)</span><button class="info" data-term="yhat" aria-label="Definition of ŷ">i</button></h3><div id="yhat"></div></div>
+    <div class="card"><h3><span class="sym">y</span> ground truth (verifier)<button class="info" data-term="y" aria-label="Definition of y">i</button></h3><div id="y"></div></div>
+  </div>
+</main>
+<section class="evalsec">
+  <div class="eq">
+    <span class="s" data-k="ver" data-term="verifier" tabindex="0">verifier</span><span class="s on">(</span><span class="s" data-k="sbx2" data-term="sandbox2" tabindex="0">sandbox′</span><span class="s on">)</span>
+    <span class="s on">⟶</span> <span class="s" data-k="reward" data-term="reward" tabindex="0">reward</span>
+    <span class="s" data-k="reward" data-term="equiv" tabindex="0">≡ f(ŷ, y)</span>
+    <button class="info" data-term="evaleq" aria-label="How harbor evaluates a trial">i</button>
+  </div>
+  <ol class="pipe" id="pipe"></ol>
+  <div class="card mech">
+    <h3><span class="sym">f</span><span>how the verdict is reached</span><button class="info" id="minfo" data-term="tests" aria-label="How this verifier decides">i</button></h3>
+    <div id="mech"><span class="kv">·</span></div>
+    <details class="gt"><summary>raw verifier log (verifier/test-stdout.txt)</summary><pre class="vlog" id="vstdout">·</pre></details>
+  </div>
+</section>
+
+<footer>
+  <div class="card">
+    <span style="font-family:var(--serif);font-size:18px"><span data-term="job" tabindex="0">job</span> =</span>
+    <span class="sym" style="font-family:var(--serif);font-size:18px" data-term="Tsplit" tabindex="0">𝒯<sub>split</sub></span>
+    <div class="dots" id="dots"></div>
+    <div class="R" id="R" data-term="R" tabindex="0"></div>
+  </div>
+</footer>
+<div id="tip" role="tooltip"></div>
+<script>
+const $ = id => document.getElementById(id);
+const el = (tag, cls, text) => { const e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; };
+const PHASES = [["env_setup", "sandbox setup", "environment_setup"], ["agent_setup", "agent setup · π", "agent_setup"],
+                ["rollout", "trajectory · τ ∼ π", "agent_execution"], ["scoring", "verifier · f(ŷ,y)", "verifier"]];
+const ORDER = PHASES.map(p => p[0]).concat("done");
+const params = new URLSearchParams(location.search);
+let selected = null, lastTauKey = "";
+
+const fmt = v => typeof v === "string" ? v : JSON.stringify(v, null, 2);
+const secs = t => t && t.started_at && t.finished_at ? ((new Date(t.finished_at) - new Date(t.started_at)) / 1000).toFixed(1) + "s" : "";
+const scoreColor = f => f == null ? "var(--line)" : f >= 1 ? "var(--ok)" : f > 0 ? "var(--wait)" : "var(--bad)";
+
+// Map Claude Code stream-json events onto the paper's τ = (o₁, a₁, …, o_T, a_T).
+// Returns [{kind: "o"|"a"|"t", title, body, tool?}]; o₁ is the task instance x itself.
+// Design choices worth revisiting: whether text-only assistant turns are actions,
+// and whether thinking is part of τ (here: shown, but not numbered).
+function toSteps(tau, x) {
+  const steps = [{ kind: "o", title: "task context", body: x || "" }];
+  for (const ev of tau) {
+    for (const c of ev.message?.content || []) {
+      if (ev.type === "assistant" && c.type === "thinking" && c.thinking) steps.push({ kind: "t", title: "thinking", body: c.thinking });
+      else if (ev.type === "assistant" && c.type === "tool_use") steps.push({ kind: "a", title: c.name, body: fmt(c.input), tool: c.name });
+      else if (ev.type === "assistant" && c.type === "text") steps.push({ kind: "a", title: "message", body: c.text });
+      else if (ev.type === "user" && c.type === "tool_result")
+        steps.push({ kind: "o", title: c.is_error ? "tool error" : "tool result",
+                     body: Array.isArray(c.content) ? c.content.map(p => p.text ?? `[${p.type}]`).join("\n") : fmt(c.content) });
+    }
+  }
+  return steps;
+}
+
+function renderTau(t) {
+  const box = $("tau"), steps = toSteps(t.tau, t.x);
+  const key = t.name + ":" + t.tau.length + ":" + !!t.y_hat + ":" + t.phase;
+  if (key === lastTauKey) return;
+  lastTauKey = key;
+  const atBottom = box.scrollHeight - box.scrollTop - box.clientHeight < 40;
+  box.replaceChildren();
+  let i = { o: 0, a: 0 };
+  const lastA = steps.map(s => s.kind).lastIndexOf("a");
+  steps.forEach((s, n) => {
+    const row = el("div", "step " + s.kind + (t.y_hat && n === lastA ? " final" : ""));
+    const lab = el("div", "lab");
+    if (s.kind === "t") lab.textContent = "…";
+    else { lab.dataset.term = s.kind; i[s.kind]++; lab.append(s.kind, el("sub", null, n === lastA && t.y_hat ? "T" : String(i[s.kind]))); }
+    const body = el("div", "body");
+    body.append(el("div", "kind", s.title + (t.y_hat && n === lastA ? " → ŷ" : "")), el("pre", null, s.body));
+    row.append(lab, body);
+    box.append(row);
+  });
+  if (t.phase === "rollout") box.append(el("div", "pending", "agent acting"));
+  if (atBottom || t.phase === "rollout") box.scrollTop = box.scrollHeight;
+}
+
+function render(state) {
+  const trials = state.trials || [];
+  $("meta").textContent = state.job ? `job ${state.job} · ${trials.length} trial(s)` : "waiting for a job in jobs/…";
+  // T_split footer
+  $("dots").replaceChildren(...trials.map(t => {
+    const d = el("div", "dot" + (t.name === selected ? " sel" : ""));
+    d.title = `${t.name}: ${t.phase}${t.f != null ? " · f=" + t.f : ""}`;
+    d.style.background = scoreColor(t.f);
+    d.onclick = () => { selected = t.name; lastTauKey = ""; render(state); };
+    return d;
+  }));
+  $("R").textContent = state.R != null ? `ℛ(𝒯) = ${state.R.toFixed(2)}` : "ℛ(𝒯) = ·";
+  const t = trials.find(t => t.name === selected) || trials.find(t => t.phase !== "done") || trials.at(-1);
+  if (!t) return;
+  selected = t.name;
+
+  // phase stepper
+  // a failed trial stops at the last stage that started: red there, nothing after
+  const failAt = t.error ? PHASES.map(p => !!t.timings[p[2]]?.started_at).lastIndexOf(true) : -1;
+  const cur = failAt >= 0 ? failAt : ORDER.indexOf(t.phase);
+  $("phases").replaceChildren(...PHASES.map(([k, label, tk], idx) => {
+    const p = el("div", "ph" + (idx < cur ? " done" : idx !== cur ? "" : failAt >= 0 ? " fail" : " now"), label);
+    const d = secs(t.timings[tk]); if (d) p.append(el("small", null, d));
+    return p;
+  }));
+
+  // equation lights
+  const used = new Set(t.tau.flatMap(e => (e.message?.content || []).filter(c => c.type === "tool_use").map(c => c.name)));
+  $("e-x").className = "s" + (t.x ? " on" : "");
+  $("e-pi").className = "s" + (t.pi.agent ? " on" : "");
+  $("e-S").className = "s" + (t.U.length ? " on" : "");
+  $("e-sim").className = $("e-tau").className = "s" + (t.tau.length ? " on" : "") + (t.phase === "rollout" ? " hot" : "");
+  $("e-yhat").className = "s" + (t.y_hat ? " on" : "");
+  $("e-f").className = "s" + (t.f != null ? " on" : "") + (t.phase === "scoring" ? " hot" : "");
+  $("e-val").className = "s on"; $("e-val").textContent = t.f != null ? `= ${t.f}` : ""; $("e-val").style.color = scoreColor(t.f);
+
+  // eval equation lights
+  const lit = (k, on, hot) => document.querySelectorAll(`[data-k="${k}"]`).forEach(e => e.className = "s" + (on ? " on" : "") + (hot ? " hot" : ""));
+  const v = t.verifier;
+  lit("sbx2", !!t.y_hat);
+  lit("ver", v.started, t.phase === "scoring"); lit("reward", !!v.rewards);
+
+  // left column
+  $("x").textContent = t.x || "·";
+  $("pi").replaceChildren(el("div", null, t.pi.agent || "·"), el("div", "kv", t.pi.model || ""));
+  const chips = el("div", "chips");
+  chips.append(...t.S.map(s => el("span", "chip", s)));
+  $("S").replaceChildren(t.S.length ? chips : el("span", "empty", "∅"));
+  $("U").replaceChildren(...[...used].map(u => el("span", "chip used", u)),
+                         el("span", "kv", t.U.length ? `${used.size} used of ${t.U.length} available` : "·"));
+
+  renderTau(t);
+
+  // right column
+  const yh = t.y_hat;
+  $("yhat").replaceChildren(yh ? el("div", "text", yh.result ?? "") : el("span", "empty", "·"));
+  if (yh) $("yhat").append(el("div", "kv", `T=${yh.num_turns} turns · ${(yh.duration_ms / 1000).toFixed(1)}s · $${(yh.total_cost_usd || 0).toFixed(4)}`));
+  renderY(t);
+  renderEval(t);
+  renderMech(t);
+}
+
+// The steps of harbor's Verifier.verify() (harbor/verifier/verifier.py), each lit by the file it leaves behind.
+const VSTEPS = [
+  ["Upload the tests", () => "tests/ enters the sandbox only now: the agent never saw it", v => v.started],
+  ["Run test.sh", v => `timeout ${v.timeout ?? "?"}s`, v => !!v.reward_file],
+  [y => y.kind === "judge" ? "The judge reads the output" : "pytest checks sandbox′",
+   (v, y) => y.kind === "judge" ? `${y.judge.criteria.length} criteria → ${y.judge.model}` : `${y.checks.length} test functions`, v => v.ctrf || v.rubric],
+  [y => y.kind === "judge" ? "Verdicts → reward" : "Exit code → reward",
+   (v, y) => y.kind === "judge" ? y.judge.aggregation : "exit 0 → 1, else 0", v => !!v.reward_file],
+  ["Harbor reads the reward", v => v.rewards ? `reward = ${Object.values(v.rewards).join(", ")}` : "reward.json or reward.txt", v => !!v.rewards],
+];
+
+let lastEvalKey = "";
+function renderEval(t) {
+  const v = t.verifier, key = JSON.stringify([t.name, t.phase, v, t.y.kind]);
+  if (key === lastEvalKey) return;
+  lastEvalKey = key;
+  const scoring = t.phase === "scoring" || t.phase === "done";
+  let nowSet = false;
+  $("pipe").replaceChildren(...VSTEPS.map(([title, detail, done]) => {
+    const isDone = done(v);
+    const isNow = scoring && !isDone && !nowSet && t.phase === "scoring" && (nowSet = true);
+    const li = el("li", isDone ? "done" : isNow ? "now" : "");
+    li.append(el("b", null, typeof title === "function" ? title(t.y) : title), el("span", null, detail(v, t.y)));
+    return li;
+  }));
+  const out = $("vstdout");
+  const atBottom = out.scrollHeight - out.scrollTop - out.clientHeight < 30;
+  out.textContent = v.stdout ?? (scoring ? "waiting for test.sh output…" : "the verifier runs after the rollout");
+  if (atBottom) out.scrollTop = out.scrollHeight;
+}
+
+// One {value, weight} per check that has a verdict; value > 0 means it passed.
+const verdictsOf = y => y.kind === "judge"
+  ? y.judge.criteria.filter(c => c.value != null).map(c => ({ value: c.value, weight: c.weight ?? 1 }))
+  : (y.checks || []).filter(c => c.status).map(c => ({ value: c.status === "passed" ? 1 : 0, weight: 1 }));
+
+// harbor-rewardkit's aggregation modes (rewardkit/reward.py), shown with the numbers of this trial.
+function aggregation(mode, vs, threshold = 0.5) {
+  const n = vs.length, k = vs.filter(x => x.value > 0).length;
+  const w = vs.reduce((s, x) => s + x.weight, 0), mean = w ? vs.reduce((s, x) => s + x.value * x.weight, 0) / w : 0;
+  const rule = { all_pass: `1 only if all ${n} pass`, any_pass: "1 if at least one passes",
+                 weighted_mean: "the weighted share that pass", threshold: `1 if the weighted share ≥ ${threshold}` }[mode];
+  const r = { all_pass: +(k === n), any_pass: +(k > 0), weighted_mean: mean, threshold: +(mean >= threshold) }[mode];
+  return { n, k, mean, rule, r };
+}
+
+let lastMechKey = "", selCrit = null;
+// rewardkit 0.1.4 prompts/llm.md + _build_criteria_block for a single binary criterion (individual mode)
+const RK_PROMPT = c => `You are an evaluation judge. Evaluate the provided file contents against the following criteria.\n\n- '${c.name}': ${c.description} (score: "yes" or "no")\n\nRespond with a JSON object. Example:\n{\n  "score": 1,\n  "reasoning": "..."\n}`;
+const msg = (cls, label, text, extra) => {
+  const m = el("div", "msg " + cls); m.append(el("div", "kind", label), el("pre", null, text));
+  if (extra) m.append(el("div", "kv", extra));
+  return m;
+};
+
+function renderMech(t) {
+  const y = t.y, key = JSON.stringify([t.name, t.phase, y.kind, y.checks, y.judge?.criteria, selCrit, t.verifier.rewards, !!t.error]);
+  if (key === lastMechKey) return;
+  lastMechKey = key;
+  const box = $("mech"), scoring = t.phase === "scoring";
+  $("minfo").dataset.term = y.kind === "judge" ? "judge" : "tests";
+  if (!y.kind) return box.replaceChildren(el("span", "kv", "no tests/test_*.py or tests/judge.toml found for this task"));
+  const vs = verdictsOf(y);
+  let head, nature, body, mode;
+
+  if (y.kind === "judge") {
+    const J = y.judge, cs = J.criteria;
+    const c = cs.find(c => c.name === selCrit) || cs[0];
+    head = el("span", "badge llm", "LLM-as-a-judge · rubric");
+    nature = `${J.model} reads the agent's file and answers "yes" or "no" to each criterion, ${J.mode === "individual" ? "one call per criterion" : "all in one call"}. ` +
+      `The evidence is an interpretation: another run can give another verdict.`;
+    const list = el("div", "crit");
+    list.append(...cs.map(x => {
+      const b = el("button", "crow" + (x === c ? " sel" : ""));
+      b.type = "button";
+      b.append(el("span", x.value == null ? "" : x.value > 0 ? "pass" : "fail", x.value == null ? "·" : x.value > 0 ? "✓" : "✗"),
+               el("code", null, x.name), el("span", null, x.description.split("\n")[0]));
+      b.onclick = () => {
+        selCrit = x.name; renderMech(t);
+        if (innerWidth <= 900) document.querySelector(".call")?.scrollIntoView({ block: "start", behavior: "smooth" });
+      };
+      return b;
+    }));
+    const user = c.files.map(f => `--- ${f} ---\n${J.input?.[f] ?? (scoring || t.phase === "done" ? "[not found]" : "[the agent has not written it yet]")}`).join("\n\n");
+    const answer = c.raw == null ? (scoring ? "waiting for the judge…" : "not judged yet")
+      : JSON.stringify({ score: c.raw, reasoning: c.reasoning }, null, 2);
+    const call = el("div", "call");
+    call.append(
+      msg("sys", "① prompt", RK_PROMPT(c)),
+      msg("usr", "② the agent's file, as the judge reads it", user),
+      msg("res", "③ verdict", answer,
+          c.raw == null ? null : `→ "${c.raw}" normalised to ${c.value} · weight ${c.weight}`));
+    const nYes = cs.filter(x => x.value > 0).length, nNo = cs.filter(x => x.value != null && !(x.value > 0)).length;
+    const left = el("div");
+    left.append(el("div", "kv", `${nYes} ✓ · ${nNo} ✗${cs.length - nYes - nNo ? ` · ${cs.length - nYes - nNo} pending` : ""} · click a criterion to see its call`), list);
+    body = el("div", "mgrid"); body.append(left, call);
+    mode = J.aggregation;
+  } else {
+    head = el("span", "badge det", "deterministic tests · code execution");
+    nature = `Each assertion reads sandbox′ directly and holds or fails: the same sandbox′ always gives the same verdict.`;
+    const table = el("table", "checks"), tr = el("tr");
+    tr.append(...["", "check", "evidence sought (assertions)", "outcome"].map(h => el("th", null, h)));
+    table.append(tr);
+    for (const c of y.checks) {
+      const row = el("tr"), ok = c.status === "passed";
+      const name = el("td"); name.append(el("div", null, c.name), el("div", "kv", c.file + (c.doc ? " · " + c.doc : "")));
+      const src = el("details", "gt"); src.append(el("summary", null, "full test code"), el("pre", null, c.source)); name.append(src);
+      const ev = el("td"); ev.append(el("pre", null, c.asserts.join("\n\n") || "(no assert: passes unless it raises)"));
+      const out = el("td", c.status ? (ok ? "pass" : "fail") : "kv",
+        !c.status ? (t.error ? "not run: the trial failed before scoring" : scoring ? "running…" : "not run yet") : ok ? `assertion held${c.duration != null ? ` · ${(c.duration * 1000).toFixed(2)} ms` : ""}` : (c.message || "failed"));
+      if (!ok && c.status) out.style.whiteSpace = "pre-wrap";
+      row.append(el("td", c.status ? (ok ? "pass" : "fail") : "kv", !c.status ? "·" : ok ? "✓" : "✗"), name, ev, out);
+      table.append(row);
+    }
+    body = el("div", "cwrap"); body.append(table);
+    mode = "all_pass";
+  }
+  let small = "";
+
+  // the reward is the output of the whole run: one big number, with how it was computed beside it
+  const agg = el("div", "agg"), why = el("div");
+  const reward = t.verifier.rewards ? Number(Object.values(t.verifier.rewards)[0]) : null;
+  if (vs.length) {
+    const a = aggregation(mode, vs, y.judge?.threshold ?? 0.5);
+    why.append(`${a.k} / ${a.n} pass → `, el("span", null, mode), ` (${a.rule})`);
+    why.firstElementChild.dataset.term = "aggregation";
+    if (mode !== "weighted_mean" && Math.abs(a.mean - a.r) > 0.005) small = `with weighted_mean, the same verdicts would give ${a.mean.toFixed(2)}`;
+  } else why.append(el("span", "kv", t.error ? "no reward: the trial failed before scoring" : scoring ? "verdicts arriving…" : "aggregation runs once every check has a verdict"));
+  if (small) why.append(el("small", null, small));
+  const big = el("div", "rbig", reward != null ? reward.toFixed(2) : "·");
+  big.style.color = agg.style.borderColor = scoreColor(reward);
+  big.append(el("small", null, "reward"));
+  big.dataset.term = "reward"; big.tabIndex = 0;
+  agg.append(big, why);
+  head.dataset.term = y.kind === "judge" ? "judge" : "tests"; head.tabIndex = 0;
+  const listTop = box.querySelector(".crit")?.scrollTop;  // keep the criteria list where the reader left it
+  box.replaceChildren(head, el("p", "nature", nature), body, agg);
+  if (listTop != null && box.querySelector(".crit")) box.querySelector(".crit").scrollTop = listTop;
+}
+
+
+// Rebuilt only when y changes, so an open dropdown survives the 1 s poll.
+let lastYKey = "";
+function renderY(t) {
+  const key = JSON.stringify([t.name, t.y.files, t.error]);
+  if (key === lastYKey) return;
+  lastYKey = key;
+  const y = $("y"); y.replaceChildren();
+  y.append(el("div", "kv", t.y.files.length ? `hidden from π: ${t.y.files.length} file(s) in tests/` : "·"));
+  for (const file of t.y.files) {
+    const d = el("details", "gt");
+    d.append(el("summary", null, file.name), el("pre", null, file.content ?? ""));
+    y.append(d);
+  }
+  if (t.error) {
+    const d = el("details", "gt");
+    d.append(el("summary", "err", `${t.error.exception_type}: ${(t.error.exception_message || "").split("\n")[0].slice(0, 120)}`),
+             el("pre", "err", t.error.exception_traceback || ""));
+    y.append(d);
+  }
+}
+
+// Definitions quoted verbatim from WikiSkill (arXiv:2608.27454), §2 Problem Setup.
+const DEFS = {
+  eq: ["τᵢ ∼ π(xᵢ; S) → ŷᵢ → f(ŷᵢ, yᵢ)", "When executing a task xᵢ, the agent receives the task context xᵢ and access to the available skills S. The agent interacts with the environment over multiple steps using its tools and skills to generate an execution trajectory τᵢ ∼ π(xᵢ; S). The trajectory τᵢ = (o₁, a₁, o₂, a₂, …, o_T, a_T) consists of observations o_t and actions a_t (which may include calls to tools in 𝒰). The final action a_T emits a predicted answer ŷᵢ. The correctness of the prediction is evaluated by a domain-specific scoring function f(ŷᵢ, yᵢ) ∈ [0, 1]."],
+  x: ["xᵢ", "xᵢ denotes a task instance and yᵢ denotes its ground-truth answer. […] When executing a task xᵢ, the agent receives the task context xᵢ and access to the available skills S."],
+  y: ["yᵢ", "yᵢ denotes its ground-truth answer."],
+  pi: ["π", "An agent π is an LLM-based system equipped with a set of tools 𝒰 (e.g., a bash shell, search APIs, or file readers) and an active skill set S = {s₁, s₂, …, s_M}."],
+  S: ["S", "A skill is a modular, filesystem-based directory that packages domain-specific procedural knowledge into instructions, scripts, and other resources. […] each skill contains a SKILL.md file with frontmatter metadata (a unique name and concise description) alongside full procedural instructions and applicability conditions. The skill set S is initialized to empty (∅) and developed for each dataset through the evolution process."],
+  U: ["𝒰", "An agent π is an LLM-based system equipped with a set of tools 𝒰 (e.g., a bash shell, search APIs, or file readers)."],
+  tau: ["τᵢ", "The agent interacts with the environment over multiple steps using its tools and skills to generate an execution trajectory τᵢ ∼ π(xᵢ; S). The trajectory τᵢ = (o₁, a₁, o₂, a₂, …, o_T, a_T) consists of observations o_t and actions a_t (which may include calls to tools in 𝒰)."],
+  o: ["o_t", "The trajectory τᵢ = (o₁, a₁, o₂, a₂, …, o_T, a_T) consists of observations o_t and actions a_t."],
+  a: ["a_t", "The trajectory τᵢ consists of observations o_t and actions a_t (which may include calls to tools in 𝒰). The final action a_T emits a predicted answer ŷᵢ."],
+  yhat: ["ŷᵢ", "The final action a_T emits a predicted answer ŷᵢ."],
+  f: ["f(ŷᵢ, yᵢ)", "The correctness of the prediction is evaluated by a domain-specific scoring function f(ŷᵢ, yᵢ) ∈ [0, 1]."],
+  Tsplit: ["𝒯_split", "For any task split 𝒟_split ⊂ 𝒟, rolling out the agent π(·; S) across all task instances in 𝒟_split yields a corresponding set of execution trajectories 𝒯_split = {τᵢ ∼ π(xᵢ; S)}."],
+  ...(() => {
+    const H = "Harbor docs · Core concepts", ART = "Article · Fonctionnement d'harbor";
+    const task = "A task defines one or more instructions, a sandbox environment, and a verifier.";
+    const ver = "A verifier evaluates the agent's work and produces the task's reward.";
+    const trial = "A trial is one agent's attempt at completing one task.";
+    return {
+      job: ["job", "A job is a collection of trials used to evaluate agents and models. […] a job generates trials and runs them in parallel.", H, "Here: harbor run → jobs/<timestamp>/, one sub-directory per trial. The paper's 𝒯_split."],
+      trial: ["trial", trial, H, "Here: jobs/<timestamp>/<trial>/ — sandbox setup, agent setup, trajectory, verifier, in that order (the stepper above)."],
+      task: ["task", task, H, "Here: -p harbor_cookbook/recipes/simple-task → instruction.md, environment/, tests/ + task.toml."],
+      instruction: ["instruction", task, H, "Here: instruction.md, given to the agent. The paper's x."],
+      sandbox: ["sandbox", "A sandbox is an isolated environment for running tasks.", H, "Here: the container built from environment/Dockerfile, started before the agent."],
+      sandbox2: ["sandbox′", "A sandbox is an isolated environment for running tasks. […] " + ver, H, "sandbox′ (our notation) = the same sandbox after the trajectory: the agent's work, which is what the verifier evaluates. It plays the role of the paper's ŷ."],
+      agent: ["agent", "An agent is a program that completes tasks.", H, "Here: --agent claude-code --model anthropic/claude-sonnet-4-6, installed into the sandbox. The paper's π."],
+      trajectory: ["trajectory", "A trajectory is the conversation and action history of the agent and user while completing a task.", H, "Here: agent/claude-code.txt, streamed live. The paper's τ."],
+      verifier: ["verifier", ver, H, "Here: tests/ uploaded to /tests, test.sh runs pytest against sandbox′ and writes reward.txt. The paper's f, with tests/ as y."],
+      reward: ["reward", ver, H, "Here: verifier/reward.txt (or reward.json) → result.json verifier_result.rewards. The paper's f(ŷ, y)."],
+      tests: ["tests", "Les tests sont donc injectés après le travail de l’agent et appliqués. […] Donc, d’une certaine manière, les tests récupèrent des preuves irréfutables que l’agent a bien effectué son travail.", ART, "Here: each pytest function is code run inside sandbox′; its assertions are the evidence."],
+      judge: ["LLM-as-a-judge", "Dans ce benchmark, il n'existe pas d'image de la tâche bien réalisée, seulement des critères d'évaluation laissées à la main d'un LLM-as-a-judge […] Le juge va ici récupérer l'output de l'agent et regarder si un certain nombre d'éléments sont présents. En fonction, il décide si oui ou non la tâche a réussi.", ART, "Here: harbor-rewardkit sends each criterion to the judge model with the agent's file and parses a yes/no answer."],
+      aggregation: ["aggregation", "La réussite ou l’échec se traduit dans un score allant de 0 à 1, qui devient alors une « récompense ».", ART, "harbor-rewardkit: all_pass = 1 only if every check passes · any_pass = 1 if one does · weighted_mean = the share that pass · threshold = 1 if that share ≥ a cutoff. pytest + test.sh behaves like all_pass."],
+      equiv: ["reward ≡ f(ŷ, y)", "The correctness of the prediction is evaluated by a domain-specific scoring function f(ŷᵢ, yᵢ) ∈ [0, 1].", "WikiSkill, §2 Problem Setup", "Harbor's reward is this number: the verifier is f, tests/ is y, sandbox′ stands in for ŷ."],
+      evaleq: ["verifier(sandbox′) → reward", task + " […] " + ver, H, "The verifier never reads ŷ (the agent's final message): it inspects the sandbox the agent left behind. That is how harbor computes f(ŷ, y)."],
+    };
+  })(),
+  R: ["ℛ(𝒯_split)", "The performance on a task split ℛ(𝒯_split) is the average score across all task instances (xᵢ, yᵢ) ∈ 𝒟_split."],
+};
+
+const tip = $("tip");
+function showTip(target) {
+  const d = DEFS[target.dataset.term];
+  if (!d) return;
+  // "o_T" → o<sub>T</sub> (Unicode has no subscript T/M/split)
+  const math = s => s.split(/_(\w+)/).map((part, i) => i % 2 ? el("sub", null, part) : part);
+  const q = el("q"); q.append(...math(d[1]));
+  const b = el("b"); b.append(...math(d[0]));
+  tip.replaceChildren(b, " — ", q);
+  if (d[3]) tip.append(el("p", "note", d[3]));
+  tip.append(el("cite", null, d[2] || "WikiSkill, §2 Problem Setup"));
+  tip.classList.add("show");
+  const r = target.getBoundingClientRect(), w = tip.offsetWidth, h = tip.offsetHeight;
+  const left = Math.min(Math.max(16, r.left + r.width / 2 - w / 2), innerWidth - w - 16);
+  const top = r.bottom + 8 + h > innerHeight ? r.top - h - 8 : r.bottom + 8;
+  Object.assign(tip.style, { left: left + "px", top: top + "px" });
+}
+const hideTip = () => tip.classList.remove("show");
+for (const ev of ["mouseover", "focusin", "click"])
+  document.addEventListener(ev, e => { const t = e.target.closest("[data-term]"); t ? showTip(t) : ev !== "mouseover" && hideTip(); });
+for (const ev of ["mouseout", "focusout"])
+  document.addEventListener(ev, e => { if (e.target.closest("[data-term]")) hideTip(); });
+document.addEventListener("keydown", e => e.key === "Escape" && hideTip());
+addEventListener("scroll", hideTip, true);
+
+// Replay: a baked /state snapshot (state.json next to the page, or ?replay=<url>) played back as if live.
+// Frame k shows the first k steps of τ, then ŷ, then the verifier, then one judge verdict at a time, then the reward.
+function frame(full, k) {
+  const t = structuredClone(full), T = full.tau.length, J = t.y.judge, C = J ? J.criteria.length : 0;
+  if (k >= T + 2 + C) return t;
+  const v = t.verifier;
+  t.error = null; t.f = null; t.timings.verifier = null;
+  Object.assign(v, { started: k > T + 1, stdout: null, ctrf: false, rubric: false, reward_file: null, rewards: null });
+  if (J) J.criteria.forEach((c, i) => { if (i >= k - T - 1) c.raw = c.value = c.reasoning = null; });
+  if (k <= T) { t.phase = "rollout"; t.tau = full.tau.slice(0, k); t.y_hat = null; t.timings.agent_execution = null; }
+  else t.phase = "scoring";
+  return t;
+}
+async function replay() {
+  let s;
+  try { s = await (await fetch(params.get("replay") || "state.json")).json(); } catch (e) { return false; }
+  const full = s.trials[0]; if (!full) return false;
+  const T = full.tau.length, N = T + 2 + (full.y.judge ? full.y.judge.criteria.length : 0), speed = +params.get("speed") || 1;
+  let k = 0;
+  const tick = () => {
+    s.trials = [frame(full, k)]; s.R = k >= N ? full.f : null;
+    render(s); $("meta").textContent += " · replay";
+    if (k++ < N) setTimeout(tick, (k <= T ? 500 : 1500) / speed);
+  };
+  tick(); return true;
+}
+
+async function poll() {
+  try {
+    const q = params.get("job") ? "?job=" + encodeURIComponent(params.get("job")) : "";
+    render(await (await fetch("/state" + q)).json());
+  } catch (e) {
+    if (await replay()) return;
+    $("meta").textContent = "live server unreachable";
+  }
+  setTimeout(poll, 1000);
+}
+poll();
+</script>
+</body>
+</html>
